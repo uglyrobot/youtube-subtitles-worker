@@ -138,8 +138,29 @@ addEventListener('fetch', event => {
 	return match[1]
   }
   
+  const fetchHeaders = {
+    'Referer': 'https://www.youtube.com/',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept-Encoding': 'gzip',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Connection': 'keep-alive',
+    'DNT': '1',
+    'Host': 'localhost:8787',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+    'sec-ch-ua': '"Not)A;Brand";v="99", "Google Chrome";v="127", "Chromium";v="127"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"macOS"'
+  }
+  
   async function fetchCaptionTrack(videoId) {
-	const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`)
+	const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+	  headers: fetchHeaders
+	})
 	const html = await response.text()
 	
 	const captionRegex = /"captionTracks":\s*(\[.*?\])/
@@ -150,20 +171,22 @@ addEventListener('fetch', event => {
 	const englishTrack = captionTracks.find(track => track.languageCode === 'en')
 	if (!englishTrack) throw new Error('No English captions found')
 	
-	const captionResponse = await fetch(englishTrack.baseUrl)
+	const captionResponse = await fetch(englishTrack.baseUrl, {
+	  headers: fetchHeaders
+	})
 	return await captionResponse.text()
   }
   
   function parseCaptions(captionTrack) {
-	const regex = /<text start="([\d.]+)" dur="([\d.]+)".*?>(.*?)<\/text>/g
+	const regex = /<text start="([\d.]+)" dur="([\d.]+)".*?>([\s\S]*?)<\/text>/g
 	const captions = []
 	let match
-  
+
 	while ((match = regex.exec(captionTrack)) !== null) {
 	  captions.push({
 		start: parseFloat(match[1]),
 		duration: parseFloat(match[2]),
-		text: decodeHTMLEntities(match[3])
+		text: decodeHTMLEntities(match[3].trim())
 	  })
 	}
   
@@ -176,6 +199,8 @@ addEventListener('fetch', event => {
 			   .replace(/&gt;/g, '>')
 			   .replace(/&quot;/g, '"')
 			   .replace(/&#39;/g, "'")
+			   .replace(/\n/g, ' ')
+			   .replace(/\s+/g, ' ')
   }
   
   function formatResponse(captions, outputType) {
