@@ -1,3 +1,5 @@
+const generatedHeaderSets = require('./headers.js');
+
 addEventListener('fetch', event => {
 	event.respondWith(handleRequest(event.request))
   })
@@ -138,43 +140,66 @@ addEventListener('fetch', event => {
 	return match[1]
   }
   
-  const fetchHeaders = {
-    'Referer': 'https://www.youtube.com/',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Encoding': 'gzip',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Connection': 'keep-alive',
-    'DNT': '1',
-    'Host': 'localhost:8787',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
-    'sec-ch-ua': '"Not)A;Brand";v="99", "Google Chrome";v="127", "Chromium";v="127"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"macOS"'
-  }
-  
   async function fetchCaptionTrack(videoId) {
-	const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-	  headers: fetchHeaders
-	})
-	const html = await response.text()
-	
-	const captionRegex = /"captionTracks":\s*(\[.*?\])/
-	const match = html.match(captionRegex)
-	if (!match) throw new Error('No captions found')
-	
-	const captionTracks = JSON.parse(match[1])
-	const englishTrack = captionTracks.find(track => track.languageCode === 'en')
-	if (!englishTrack) throw new Error('No English captions found')
-	
-	const captionResponse = await fetch(englishTrack.baseUrl, {
-	  headers: fetchHeaders
-	})
-	return await captionResponse.text()
+    // Randomly select one of the pre-generated header sets
+    const randomHeaders = generatedHeaderSets[Math.floor(Math.random() * generatedHeaderSets.length)];
+    
+    const fetchHeaders = {
+      ...randomHeaders,
+      'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+    };
+    
+    let response;
+    try {
+      response = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+        headers: fetchHeaders
+      });
+      
+      if (!response.ok) {
+        switch (response.status) {
+          case 404:
+            throw new Error('Video not found');
+          case 429:
+            throw new Error('Rate limit exceeded');
+          default:
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+      }
+      
+      const html = await response.text();
+      
+      if (html.includes('class="g-recaptcha"')) {
+        throw new Error('YouTube is receiving too many requests from this IP and now requires solving a captcha to continue');
+      }
+
+      if (!html.includes('"playabilityStatus":')) {
+        throw new Error(`The video is no longer available (${videoId})`);
+      }
+      
+      const captionRegex = /"captionTracks":\s*(\[.*?\])/;
+      const match = html.match(captionRegex);
+      if (!match) throw new Error('Invalid video or no captions found for it');
+      
+      const captionTracks = JSON.parse(match[1]);
+      let selectedTrack = captionTracks.find(track => track.languageCode === 'en');
+      if (!selectedTrack) {
+        selectedTrack = captionTracks[0];
+        if (!selectedTrack) throw new Error('No caption languages found');
+      }
+      
+      const captionResponse = await fetch(selectedTrack.baseUrl, {
+        headers: fetchHeaders
+      });
+      
+      if (!captionResponse.ok) {
+        throw new Error(`Failed to fetch captions: ${captionResponse.status}`);
+      }
+      
+      return await captionResponse.text();
+    } catch (error) {
+      console.error('Error fetching caption track:', error);
+      throw error;
+    }
   }
   
   function parseCaptions(captionTrack) {
